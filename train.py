@@ -1,22 +1,18 @@
+import load_tfrecord_dataset
+import numpy as np
+import tensorflow as tf
+import transform_images
 from absl import app, flags, logging
 from absl.flags import FLAGS
+from tensorflow.keras.callbacks import (EarlyStopping, ModelCheckpoint,
+                                        ReduceLROnPlateau, TensorBoard)
+from tensorflow.keras.layers import Lambda
 
-import tensorflow as tf
-import numpy as np
-import cv2
-from tensorflow.keras.callbacks import (
-    ReduceLROnPlateau,
-    EarlyStopping,
-    ModelCheckpoint,
-    TensorBoard
-)
-from yolov3_tf2.models import (
-    YoloV3, YoloV3Tiny, YoloLoss,
-    yolo_anchors, yolo_anchor_masks,
-    yolo_tiny_anchors, yolo_tiny_anchor_masks
-)
-from yolov3_tf2.utils import freeze_all
 import yolov3_tf2.dataset as dataset
+from yolov3_tf2.models import (YoloLoss, YoloV3, YoloV3Tiny, yolo_anchor_masks,
+                               yolo_anchors, yolo_boxes, yolo_nms,
+                               yolo_tiny_anchor_masks, yolo_tiny_anchors)
+from yolov3_tf2.utils import draw_outputs, freeze_all
 
 flags.DEFINE_string('dataset', '', 'path to dataset')
 flags.DEFINE_string('val_dataset', '', 'path to validation dataset')
@@ -72,7 +68,7 @@ class ImageCallback(tf.keras.callbacks.Callback):
                 img = transform_images(img, self.FLAGS.size)
 
                 output_0, output_1 = self.model(img)
-        
+
                 boxes_0 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[0]], 1), name='yolo_boxes_0')(output_0)
                 boxes_1 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[1]], 1), name='yolo_boxes_1')(output_1)
                 outputs = Lambda(lambda x: yolo_nms(x, self.anchors, self.masks, 1), name='yolo_nms')((boxes_0[:3], boxes_1[:3]))
@@ -83,7 +79,6 @@ class ImageCallback(tf.keras.callbacks.Callback):
                 out.append(img_raw / 255)
 
             out = np.stack(out)
-    
 
             with self.writer.as_default():
                 tf.summary.image("Validation images", out, step=epoch)
@@ -221,9 +216,7 @@ def main(_argv):
         model.compile(optimizer=optimizer, loss=loss,
                       run_eagerly=(FLAGS.mode == 'eager_fit'))
 
-
         file_writer = tf.summary.create_file_writer("logs")
-
 
         callbacks = [
             ReduceLROnPlateau(verbose=1),
@@ -236,10 +229,12 @@ def main(_argv):
         if FLAGS.early_stopping:
             callbacks.append(EarlyStopping(patience=20, verbose=1))
 
-        _ = model.fit(train_dataset,
-                            epochs=FLAGS.epochs,
-                            callbacks=callbacks,
-                            validation_data=val_dataset)
+        _ = model.fit(
+            train_dataset,
+            epochs=FLAGS.epochs,
+            callbacks=callbacks,
+            validation_data=val_dataset
+        )
 
 
 if __name__ == '__main__':
