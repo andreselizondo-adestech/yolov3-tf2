@@ -1,22 +1,16 @@
+import numpy as np
+import tensorflow as tf
 from absl import app, flags, logging
 from absl.flags import FLAGS
+from tensorflow.keras.callbacks import (EarlyStopping, ModelCheckpoint,
+                                        ReduceLROnPlateau, TensorBoard)
+from tensorflow.keras.layers import Lambda
 
-import tensorflow as tf
-import numpy as np
-import cv2
-from tensorflow.keras.callbacks import (
-    ReduceLROnPlateau,
-    EarlyStopping,
-    ModelCheckpoint,
-    TensorBoard
-)
-from yolov3_tf2.models import (
-    YoloV3, YoloV3Tiny, YoloLoss,
-    yolo_anchors, yolo_anchor_masks,
-    yolo_tiny_anchors, yolo_tiny_anchor_masks
-)
-from yolov3_tf2.utils import freeze_all
 import yolov3_tf2.dataset as dataset
+from yolov3_tf2.models import (YoloLoss, YoloV3, YoloV3Tiny, yolo_anchor_masks,
+                               yolo_anchors, yolo_boxes, yolo_nms,
+                               yolo_tiny_anchor_masks, yolo_tiny_anchors)
+from yolov3_tf2.utils import draw_outputs, freeze_all
 
 flags.DEFINE_string('dataset', '', 'path to dataset')
 flags.DEFINE_string('val_dataset', '', 'path to validation dataset')
@@ -42,6 +36,49 @@ flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
 flags.DEFINE_integer('num_classes', 80, 'number of classes in the model')
 flags.DEFINE_integer('weights_num_classes', None, 'specify num class for `weights` file if different, '
                      'useful in transfer learning with different number of classes')
+
+
+class ImageCallback(tf.keras.callbacks.Callback):
+
+    def __init__(self, anchors, anchor_masks, FLAGS, writer):
+        super(tf.keras.callbacks.Callback, self).__init__()
+
+        self.dataset = dataset.load_tfrecord_dataset(
+            FLAGS.val_dataset, FLAGS.classes, FLAGS.size)
+
+        self.FLAGS = FLAGS
+
+        self.anchors = anchors
+        self.masks = anchor_masks
+
+        self.writer = writer
+
+    def on_epoch_end(self, epoch, logs=None):
+
+        if epoch % 10 == 0:
+
+            out = []
+
+            for i, (img_raw, _) in enumerate(self.dataset):
+
+                img = tf.expand_dims(img_raw, 0)
+                img = dataset.transform_images(img, self.FLAGS.size)
+
+                output_0, output_1 = self.model(img)
+
+                boxes_0 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[0]], 1), name='yolo_boxes_0')(output_0)
+                boxes_1 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[1]], 1), name='yolo_boxes_1')(output_1)
+                outputs = Lambda(lambda x: yolo_nms(x, self.anchors, self.masks, 1), name='yolo_nms')((boxes_0[:3], boxes_1[:3]))
+
+                img_raw = img_raw.numpy()
+                # img_raw = cv2.cvtColor(img_raw, cv2.COLOR_RGB2BGR)
+                img_raw = draw_outputs(img_raw, outputs, ['floats'])
+                out.append(img_raw / 255)
+
+            out = np.stack(out)
+
+            with self.writer.as_default():
+                tf.summary.image("Validation images", out, step=epoch)
 
 
 def main(_argv):
@@ -175,19 +212,26 @@ def main(_argv):
     else:
         model.compile(optimizer=optimizer, loss=loss,
                       run_eagerly=(FLAGS.mode == 'eager_fit'))
+  
+        file_writer = tf.summary.create_file_writer("logs")
 
         callbacks = [
             ReduceLROnPlateau(verbose=1),
-            EarlyStopping(patience=3, verbose=1),
             ModelCheckpoint('checkpoints/yolov3_train_{epoch}.tf',
-                            verbose=1, save_weights_only=True),
-            TensorBoard(log_dir='logs')
+                            verbose=1, save_weights_only=True, save_freq=100),
+            TensorBoard(log_dir='logs'),
+            ImageCallback(anchors, anchor_masks, FLAGS, file_writer)
         ]
 
-        history = model.fit(train_dataset,
-                            epochs=FLAGS.epochs,
-                            callbacks=callbacks,
-                            validation_data=val_dataset)
+        if FLAGS.early_stopping:
+            callbacks.append(EarlyStopping(patience=20, verbose=1))
+
+        _ = model.fit(
+            train_dataset,
+            epochs=FLAGS.epochs,
+            callbacks=callbacks,
+            validation_data=val_dataset
+        )
 
 
 if __name__ == '__main__':
