@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-import transform_images
 from absl import app, flags, logging
 from absl.flags import FLAGS
 from tensorflow.keras.callbacks import (EarlyStopping, ModelCheckpoint,
@@ -63,7 +62,7 @@ class ImageCallback(tf.keras.callbacks.Callback):
             for i, (img_raw, _) in enumerate(self.dataset):
 
                 img = tf.expand_dims(img_raw, 0)
-                img = transform_images(img, self.FLAGS.size)
+                img = dataset.transform_images(img, self.FLAGS.size)
 
                 output_0, output_1 = self.model(img)
 
@@ -213,6 +212,8 @@ def main(_argv):
     else:
         model.compile(optimizer=optimizer, loss=loss,
                       run_eagerly=(FLAGS.mode == 'eager_fit'))
+
+        file_writer = tf.summary.create_file_writer("logs")
 
         file_writer = tf.summary.create_file_writer("logs")
 
