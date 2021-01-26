@@ -42,6 +42,51 @@ flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
 flags.DEFINE_integer('num_classes', 80, 'number of classes in the model')
 flags.DEFINE_integer('weights_num_classes', None, 'specify num class for `weights` file if different, '
                      'useful in transfer learning with different number of classes')
+flags.DEFINE_boolean('early_stopping', False, 'Early stop')
+
+
+class ImageCallback(tf.keras.callbacks.Callback):
+
+    def __init__(self, anchors, anchor_masks, FLAGS, writer):
+        super(tf.keras.callbacks.Callback, self).__init__()
+
+        self.dataset = load_tfrecord_dataset(
+            FLAGS.val_dataset, FLAGS.classes, FLAGS.size)
+
+        self.FLAGS = FLAGS
+
+        self.anchors = anchors
+        self.masks = anchor_masks
+
+        self.writer = writer
+
+    def on_epoch_end(self, epoch, logs=None):
+
+        if epoch % 10 == 0:
+
+            out = []
+
+            for i, (img_raw, _) in enumerate(self.dataset):
+
+                img = tf.expand_dims(img_raw, 0)
+                img = transform_images(img, self.FLAGS.size)
+
+                output_0, output_1 = self.model(img)
+        
+                boxes_0 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[0]], 1), name='yolo_boxes_0')(output_0)
+                boxes_1 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[1]], 1), name='yolo_boxes_1')(output_1)
+                outputs = Lambda(lambda x: yolo_nms(x, self.anchors, self.masks, 1), name='yolo_nms')((boxes_0[:3], boxes_1[:3]))
+
+                img_raw = img_raw.numpy()
+                # img_raw = cv2.cvtColor(img_raw, cv2.COLOR_RGB2BGR)
+                img_raw = draw_outputs(img_raw, outputs, ['floats'])
+                out.append(img_raw / 255)
+
+            out = np.stack(out)
+    
+
+            with self.writer.as_default():
+                tf.summary.image("Validation images", out, step=epoch)
 
 
 def main(_argv):
@@ -185,7 +230,7 @@ def main(_argv):
             ModelCheckpoint('checkpoints/yolov3_train_{epoch}.tf',
                             verbose=1, save_weights_only=True, save_freq=100),
             TensorBoard(log_dir='logs'),
-            LossAndErrorPrintingCallback(anchors, anchor_masks, FLAGS, file_writer)
+            ImageCallback(anchors, anchor_masks, FLAGS, file_writer)
         ]
 
         if FLAGS.early_stopping:
