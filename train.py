@@ -1,4 +1,3 @@
-import load_tfrecord_dataset
 import numpy as np
 import tensorflow as tf
 import transform_images
@@ -7,7 +6,6 @@ from absl.flags import FLAGS
 from tensorflow.keras.callbacks import (EarlyStopping, ModelCheckpoint,
                                         ReduceLROnPlateau, TensorBoard)
 from tensorflow.keras.layers import Lambda
-
 import yolov3_tf2.dataset as dataset
 from yolov3_tf2.models import (YoloLoss, YoloV3, YoloV3Tiny, yolo_anchor_masks,
                                yolo_anchors, yolo_boxes, yolo_nms,
@@ -46,7 +44,7 @@ class ImageCallback(tf.keras.callbacks.Callback):
     def __init__(self, anchors, anchor_masks, FLAGS, writer):
         super(tf.keras.callbacks.Callback, self).__init__()
 
-        self.dataset = load_tfrecord_dataset(
+        self.dataset = dataset.load_tfrecord_dataset(
             FLAGS.val_dataset, FLAGS.classes, FLAGS.size)
 
         self.FLAGS = FLAGS
