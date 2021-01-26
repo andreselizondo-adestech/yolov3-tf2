@@ -176,15 +176,22 @@ def main(_argv):
         model.compile(optimizer=optimizer, loss=loss,
                       run_eagerly=(FLAGS.mode == 'eager_fit'))
 
+
+        file_writer = tf.summary.create_file_writer("logs")
+
+
         callbacks = [
             ReduceLROnPlateau(verbose=1),
-            EarlyStopping(patience=3, verbose=1),
             ModelCheckpoint('checkpoints/yolov3_train_{epoch}.tf',
-                            verbose=1, save_weights_only=True),
-            TensorBoard(log_dir='logs')
+                            verbose=1, save_weights_only=True, save_freq=100),
+            TensorBoard(log_dir='logs'),
+            LossAndErrorPrintingCallback(anchors, anchor_masks, FLAGS, file_writer)
         ]
 
-        history = model.fit(train_dataset,
+        if FLAGS.early_stopping:
+            callbacks.append(EarlyStopping(patience=20, verbose=1))
+
+        _ = model.fit(train_dataset,
                             epochs=FLAGS.epochs,
                             callbacks=callbacks,
                             validation_data=val_dataset)
