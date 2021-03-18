@@ -53,6 +53,8 @@ class ImageCallback(tf.keras.callbacks.Callback):
 
         self.writer = writer
 
+        self.label = open(FLAGS.classes).read().split()
+
     def on_epoch_end(self, epoch, logs=None):
 
         if epoch % 10 == 0:
@@ -66,19 +68,19 @@ class ImageCallback(tf.keras.callbacks.Callback):
 
                 output_0, output_1 = self.model(img)
 
-                boxes_0 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[0]], 1), name='yolo_boxes_0')(output_0)
-                boxes_1 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[1]], 1), name='yolo_boxes_1')(output_1)
-                outputs = Lambda(lambda x: yolo_nms(x, self.anchors, self.masks, 1), name='yolo_nms')((boxes_0[:3], boxes_1[:3]))
+                boxes_0 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[0]], FLAGS.num_classes), name='yolo_boxes_0')(output_0)
+                boxes_1 = Lambda(lambda x: yolo_boxes(x, self.anchors[self.masks[1]], FLAGS.num_classes), name='yolo_boxes_1')(output_1)
+                outputs = Lambda(lambda x: yolo_nms(x, self.anchors, self.masks, FLAGS.num_classes), name='yolo_nms')((boxes_0[:3], boxes_1[:3]))
 
                 img_raw = img_raw.numpy()
                 # img_raw = cv2.cvtColor(img_raw, cv2.COLOR_RGB2BGR)
-                img_raw = draw_outputs(img_raw, outputs, ['floats'])
+                img_raw = draw_outputs(img_raw, outputs, self.label)
                 out.append(img_raw / 255)
 
             out = np.stack(out)
 
             with self.writer.as_default():
-                tf.summary.image("Validation images", out, step=epoch)
+                tf.summary.image("Validation images", out, step=epoch, max_outputs=6)
 
 
 def main(_argv):

@@ -1,4 +1,6 @@
-FROM tensorflow/tensorflow:2.3.1-gpu
+
+ARG baseimage
+FROM ${baseimage}
 
 RUN mkdir /opt/yolov3-tf2
 WORKDIR /opt/yolov3-tf2
